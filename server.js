@@ -51,25 +51,20 @@ function generateOTP() {
 }
 
 async function sendEmailOTP(email, otp, name) {
-  await sendEmailViaResend(email, 'Your BMMU Login Code', `
-      <div style="font-family:sans-serif;max-width:400px;margin:auto;padding:24px;border:1px solid #eee;border-radius:10px">
-        <div style="text-align:center;margin-bottom:20px">
-          <div style="width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#5B6BF5,#8B5CF6);display:inline-flex;align-items:center;justify-content:center">
-            <span style="color:#fff;font-size:24px;font-weight:800">B</span>
-          </div>
-          <h2 style="margin:10px 0 0;color:#1a1d2e">BMMU System</h2>
-        </div>
-        <p style="color:#444">Hello <strong>${name}</strong>,</p>
-        <p style="color:#444">Your one-time login code is:</p>
-        <div style="text-align:center;margin:24px 0">
-          <span style="font-size:36px;font-weight:800;letter-spacing:10px;color:#5B6BF5">${otp}</span>
-        </div>
-        <p style="color:#888;font-size:13px">This code expires in <strong>10 minutes</strong>. Do not share it with anyone.</p>
-        <hr style="border:none;border-top:1px solid #eee;margin:20px 0"/>
-        <p style="color:#aaa;font-size:11px;text-align:center">Buganda Muslim Mass Union · Republic of Uganda</p>
-      </div>
-    `
-  });
+  const html = '<div style="font-family:sans-serif;max-width:400px;margin:auto;padding:24px;border:1px solid #eee;border-radius:10px">'
+    + '<div style="text-align:center;margin-bottom:20px">'
+    + '<div style="width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#5B6BF5,#8B5CF6);display:inline-flex;align-items:center;justify-content:center">'
+    + '<span style="color:#fff;font-size:24px;font-weight:800">B</span></div>'
+    + '<h2 style="margin:10px 0 0;color:#1a1d2e">BMMU System</h2></div>'
+    + '<p style="color:#444">Hello <strong>' + name + '</strong>,</p>'
+    + '<p style="color:#444">Your one-time login code is:</p>'
+    + '<div style="text-align:center;margin:24px 0">'
+    + '<span style="font-size:36px;font-weight:800;letter-spacing:10px;color:#5B6BF5">' + otp + '</span></div>'
+    + '<p style="color:#888;font-size:13px">This code expires in <strong>10 minutes</strong>. Do not share it with anyone.</p>'
+    + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0"/>'
+    + '<p style="color:#aaa;font-size:11px;text-align:center">Buganda Muslim Mass Union &middot; Republic of Uganda</p>'
+    + '</div>';
+  await sendEmailViaResend(email, 'Your BMMU Login Code', html);
 }
 
 async function sendSmsOTP(phone, otp, name) {
