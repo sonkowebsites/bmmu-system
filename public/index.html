@@ -2,6 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
+<meta name="theme-color" content="#000000"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+<meta name="apple-mobile-web-app-title" content="BMMU"/>
+<link rel="manifest" href="/manifest.json"/>
+<link rel="apple-touch-icon" href="/icon-192.png"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>BMMU — Member Management System</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
@@ -1841,6 +1848,16 @@ function escapeHtml(str) {
 // ─── INIT ─────────────────────────────────────────────────────
 document.body.classList.toggle('light', State.theme === 'light');
 render();
+</script>
+
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then(reg => console.log('SW registered:', reg.scope))
+        .catch(err => console.log('SW failed:', err));
+    });
+  }
 </script>
 </body>
 </html>
