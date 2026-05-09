@@ -2,6 +2,8 @@ const express = require('express');
 const { Pool } = require('pg');
 const path = require('path');
 const cors = require('cors');
+const nodemailer = require('nodemailer');
+const AfricasTalking = require('africastalking');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -17,9 +19,172 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
+// ============ EMAIL SETUP (Gmail) ============
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_APP_PASSWORD
+  }
+});
+
+// ============ AFRICA'S TALKING SETUP (SMS) ============
+const AT = AfricasTalking({
+  apiKey: process.env.AT_API_KEY,
+  username: process.env.AT_USERNAME
+});
+const sms = AT.SMS;
+
+// ============ OTP HELPERS ============
+function generateOTP() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+async function sendEmailOTP(email, otp, name) {
+  await transporter.sendMail({
+    from: `"BMMU System" <${process.env.GMAIL_USER}>`,
+    to: email,
+    subject: 'Your BMMU Login Code',
+    html: `
+      <div style="font-family:sans-serif;max-width:400px;margin:auto;padding:24px;border:1px solid #eee;border-radius:10px">
+        <div style="text-align:center;margin-bottom:20px">
+          <div style="width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#5B6BF5,#8B5CF6);display:inline-flex;align-items:center;justify-content:center">
+            <span style="color:#fff;font-size:24px;font-weight:800">B</span>
+          </div>
+          <h2 style="margin:10px 0 0;color:#1a1d2e">BMMU System</h2>
+        </div>
+        <p style="color:#444">Hello <strong>${name}</strong>,</p>
+        <p style="color:#444">Your one-time login code is:</p>
+        <div style="text-align:center;margin:24px 0">
+          <span style="font-size:36px;font-weight:800;letter-spacing:10px;color:#5B6BF5">${otp}</span>
+        </div>
+        <p style="color:#888;font-size:13px">This code expires in <strong>10 minutes</strong>. Do not share it with anyone.</p>
+        <hr style="border:none;border-top:1px solid #eee;margin:20px 0"/>
+        <p style="color:#aaa;font-size:11px;text-align:center">Buganda Muslim Mass Union · Republic of Uganda</p>
+      </div>
+    `
+  });
+}
+
+async function sendSmsOTP(phone, otp, name) {
+  // Format phone for Uganda: ensure it starts with +256
+  let formatted = phone.replace(/\s/g, '');
+  if (formatted.startsWith('0')) formatted = '+256' + formatted.slice(1);
+  if (!formatted.startsWith('+')) formatted = '+' + formatted;
+
+  await sms.send({
+    to: [formatted],
+    message: `BMMU System: Hello ${name}, your login code is ${otp}. Valid for 10 minutes. Do not share.`,
+    from: 'BMMU'
+  });
+}
+
+// ============ OTP API ============
+
+// Request OTP (by email or phone)
+app.post('/api/otp/request', async (req, res) => {
+  try {
+    const { value, method } = req.body;
+    // method = 'email' or 'phone'
+
+    if (!value || !method) {
+      return res.status(400).json({ error: 'Email/phone and method required' });
+    }
+
+    // Find staff member by email or phone
+    let staff;
+    if (method === 'email') {
+      const result = await pool.query(
+        'SELECT * FROM staff WHERE LOWER(email) = LOWER($1) AND active = true',
+        [value.trim()]
+      );
+      staff = result.rows[0];
+    } else {
+      // Normalize phone for search
+      const normalized = value.trim().replace(/\s/g, '');
+      const result = await pool.query(
+        'SELECT * FROM staff WHERE REPLACE(phone, \' \', \'\') = $1 AND active = true',
+        [normalized]
+      );
+      staff = result.rows[0];
+    }
+
+    if (!staff) {
+      return res.status(404).json({ error: `No active account found with that ${method}.` });
+    }
+
+    // Generate OTP
+    const otp = generateOTP();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Save OTP to database
+    await pool.query(
+      `INSERT INTO otp_codes (staff_id, code, method, expires_at)
+       VALUES ($1, $2, $3, $4)`,
+      [staff.id, otp, method, expiresAt]
+    );
+
+    // Send OTP
+    if (method === 'email') {
+      await sendEmailOTP(staff.email, otp, staff.name);
+    } else {
+      await sendSmsOTP(staff.phone, otp, staff.name);
+    }
+
+    // Return masked contact for display
+    let masked;
+    if (method === 'email') {
+      const [user, domain] = staff.email.split('@');
+      masked = user.slice(0, 2) + '***@' + domain;
+    } else {
+      masked = staff.phone.slice(0, -4).replace(/\d/g, '*') + staff.phone.slice(-4);
+    }
+
+    res.json({ success: true, masked, staffId: staff.id });
+  } catch (err) {
+    console.error('OTP request error:', err);
+    res.status(500).json({ error: 'Failed to send OTP. Please try again.' });
+  }
+});
+
+// Verify OTP
+app.post('/api/otp/verify', async (req, res) => {
+  try {
+    const { staffId, code } = req.body;
+
+    if (!staffId || !code) {
+      return res.status(400).json({ error: 'Staff ID and code required' });
+    }
+
+    // Find valid OTP
+    const result = await pool.query(
+      `SELECT * FROM otp_codes 
+       WHERE staff_id = $1 AND code = $2 AND used = false AND expires_at > NOW()
+       ORDER BY created_at DESC LIMIT 1`,
+      [staffId, code.trim()]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid or expired code. Please request a new one.' });
+    }
+
+    // Mark OTP as used
+    await pool.query('UPDATE otp_codes SET used = true WHERE id = $1', [result.rows[0].id]);
+
+    // Get staff member
+    const staffResult = await pool.query('SELECT * FROM staff WHERE id = $1', [staffId]);
+    const user = staffResult.rows[0];
+    delete user.password;
+
+    res.json(user);
+  } catch (err) {
+    console.error('OTP verify error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ============ MEMBERS API ============
 
-// Get all members
 app.get('/api/members', async (req, res) => {
   try {
     const result = await pool.query(`
@@ -37,16 +202,13 @@ app.get('/api/members', async (req, res) => {
   }
 });
 
-// Get single member
 app.get('/api/members/:id', async (req, res) => {
   try {
     const memberResult = await pool.query('SELECT * FROM members WHERE id = $1', [req.params.id]);
     if (memberResult.rows.length === 0) {
       return res.status(404).json({ error: 'Member not found' });
     }
-    
     const familyResult = await pool.query('SELECT * FROM family_members WHERE member_id = $1', [req.params.id]);
-    
     const member = memberResult.rows[0];
     member.family = familyResult.rows;
     res.json(member);
@@ -55,54 +217,38 @@ app.get('/api/members/:id', async (req, res) => {
   }
 });
 
-// Create member
 app.post('/api/members', async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    
-    const { name, dob, gender, religion, nationality, ninNumber, area, village, 
+    const { name, dob, gender, religion, nationality, ninNumber, area, village,
             phone, phone2, email, occupation, education, maritalStatus, notes, photo, family } = req.body;
-    
-    // Generate member ID
     const idResult = await client.query('SELECT COALESCE(MAX(id), 0) + 1 as next_id FROM members');
     const nextId = idResult.rows[0].next_id;
     const memberId = `BMMU-${String(nextId).padStart(5, '0')}`;
-    
-    // Insert member
     const memberResult = await client.query(
-      `INSERT INTO members (member_id, name, dob, gender, religion, nationality, nin_number, area, 
+      `INSERT INTO members (member_id, name, dob, gender, religion, nationality, nin_number, area,
        village, phone, phone2, email, occupation, education, marital_status, notes, photo, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW())
        RETURNING *`,
-      [memberId, name, dob, gender, religion, nationality, ninNumber, area, village, phone, 
+      [memberId, name, dob, gender, religion, nationality, ninNumber, area, village, phone,
        phone2, email, occupation, education, maritalStatus, notes, photo]
     );
-    
     const newMember = memberResult.rows[0];
-    
-    // Insert family members
     if (family && family.length > 0) {
       for (const fam of family) {
         await client.query(
-          `INSERT INTO family_members (member_id, name, relation, dob, phone)
-           VALUES ($1, $2, $3, $4, $5)`,
+          `INSERT INTO family_members (member_id, name, relation, dob, phone) VALUES ($1, $2, $3, $4, $5)`,
           [newMember.id, fam.name, fam.relation, fam.dob, fam.phone]
         );
       }
     }
-    
     await client.query('COMMIT');
-    
-    // Fetch with family
     const finalResult = await pool.query(`
       SELECT m.*, COALESCE(json_agg(f.*) FILTER (WHERE f.id IS NOT NULL), '[]') as family
-      FROM members m
-      LEFT JOIN family_members f ON m.id = f.member_id
-      WHERE m.id = $1
-      GROUP BY m.id
+      FROM members m LEFT JOIN family_members f ON m.id = f.member_id
+      WHERE m.id = $1 GROUP BY m.id
     `, [newMember.id]);
-    
     res.json(finalResult.rows[0]);
   } catch (err) {
     await client.query('ROLLBACK');
@@ -113,47 +259,35 @@ app.post('/api/members', async (req, res) => {
   }
 });
 
-// Update member
 app.put('/api/members/:id', async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    
-    const { name, dob, gender, religion, nationality, ninNumber, area, village, 
+    const { name, dob, gender, religion, nationality, ninNumber, area, village,
             phone, phone2, email, occupation, education, maritalStatus, notes, photo, family } = req.body;
-    
     await client.query(
-      `UPDATE members SET name=$1, dob=$2, gender=$3, religion=$4, nationality=$5, 
-       nin_number=$6, area=$7, village=$8, phone=$9, phone2=$10, email=$11, 
+      `UPDATE members SET name=$1, dob=$2, gender=$3, religion=$4, nationality=$5,
+       nin_number=$6, area=$7, village=$8, phone=$9, phone2=$10, email=$11,
        occupation=$12, education=$13, marital_status=$14, notes=$15, photo=$16, updated_at=NOW()
        WHERE id=$17`,
-      [name, dob, gender, religion, nationality, ninNumber, area, village, phone, phone2, 
+      [name, dob, gender, religion, nationality, ninNumber, area, village, phone, phone2,
        email, occupation, education, maritalStatus, notes, photo, req.params.id]
     );
-    
-    // Update family members (delete and reinsert)
     await client.query('DELETE FROM family_members WHERE member_id = $1', [req.params.id]);
-    
     if (family && family.length > 0) {
       for (const fam of family) {
         await client.query(
-          `INSERT INTO family_members (member_id, name, relation, dob, phone)
-           VALUES ($1, $2, $3, $4, $5)`,
+          `INSERT INTO family_members (member_id, name, relation, dob, phone) VALUES ($1, $2, $3, $4, $5)`,
           [req.params.id, fam.name, fam.relation, fam.dob, fam.phone]
         );
       }
     }
-    
     await client.query('COMMIT');
-    
     const finalResult = await pool.query(`
       SELECT m.*, COALESCE(json_agg(f.*) FILTER (WHERE f.id IS NOT NULL), '[]') as family
-      FROM members m
-      LEFT JOIN family_members f ON m.id = f.member_id
-      WHERE m.id = $1
-      GROUP BY m.id
+      FROM members m LEFT JOIN family_members f ON m.id = f.member_id
+      WHERE m.id = $1 GROUP BY m.id
     `, [req.params.id]);
-    
     res.json(finalResult.rows[0]);
   } catch (err) {
     await client.query('ROLLBACK');
@@ -164,7 +298,6 @@ app.put('/api/members/:id', async (req, res) => {
   }
 });
 
-// Delete member
 app.delete('/api/members/:id', async (req, res) => {
   const client = await pool.connect();
   try {
@@ -183,7 +316,6 @@ app.delete('/api/members/:id', async (req, res) => {
 
 // ============ STAFF API ============
 
-// Get all staff
 app.get('/api/staff', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM staff ORDER BY created_at DESC');
@@ -193,48 +325,37 @@ app.get('/api/staff', async (req, res) => {
   }
 });
 
-// Create staff
 app.post('/api/staff', async (req, res) => {
   try {
     const { name, username, password, email, phone, role, active, permissions, avatar } = req.body;
-    
-    // Generate staff ID
     const idResult = await pool.query('SELECT COALESCE(MAX(id), 0) + 1 as next_id FROM staff');
     const nextId = idResult.rows[0].next_id;
     const staffId = `STF-${String(nextId).padStart(4, '0')}`;
-    
     const result = await pool.query(
       `INSERT INTO staff (staff_id, name, username, password, email, phone, role, active, permissions, avatar, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
-       RETURNING *`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW()) RETURNING *`,
       [staffId, name, username, password, email, phone, role, active !== false, permissions || [], avatar]
     );
-    
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Update staff
 app.put('/api/staff/:id', async (req, res) => {
   try {
     const { name, username, password, email, phone, role, active, permissions, avatar } = req.body;
-    
     await pool.query(
-      `UPDATE staff SET name=$1, username=$2, password=$3, email=$4, phone=$5, 
-       role=$6, active=$7, permissions=$8, avatar=$9, updated_at=NOW()
-       WHERE id=$10`,
+      `UPDATE staff SET name=$1, username=$2, password=$3, email=$4, phone=$5,
+       role=$6, active=$7, permissions=$8, avatar=$9, updated_at=NOW() WHERE id=$10`,
       [name, username, password, email, phone, role, active !== false, permissions || [], avatar, req.params.id]
     );
-    
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Delete staff
 app.delete('/api/staff/:id', async (req, res) => {
   try {
     await pool.query('DELETE FROM staff WHERE id = $1', [req.params.id]);
@@ -244,7 +365,7 @@ app.delete('/api/staff/:id', async (req, res) => {
   }
 });
 
-// Login
+// Login (username + password — kept for admin)
 app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -252,10 +373,9 @@ app.post('/api/login', async (req, res) => {
       'SELECT * FROM staff WHERE username = $1 AND password = $2 AND active = true',
       [username, password]
     );
-    
     if (result.rows.length > 0) {
       const user = result.rows[0];
-      delete user.password; // Remove password from response
+      delete user.password;
       res.json(user);
     } else {
       res.status(401).json({ error: 'Invalid credentials' });
@@ -279,7 +399,6 @@ app.get('/api/stats', async (req, res) => {
       "SELECT area, COUNT(*) as count FROM members WHERE area IS NOT NULL GROUP BY area ORDER BY count DESC"
     );
     const byGender = await pool.query("SELECT gender, COUNT(*) as count FROM members GROUP BY gender");
-    
     res.json({
       total: parseInt(total.rows[0].count),
       males: parseInt(males.rows[0].count),
@@ -293,15 +412,14 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
-// Serve HTML for all other routes (SPA support)
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Initialize database tables
+// ============ DATABASE INIT ============
+
 async function initDatabase() {
   try {
-    // Create members table
     await pool.query(`
       CREATE TABLE IF NOT EXISTS members (
         id SERIAL PRIMARY KEY,
@@ -326,8 +444,7 @@ async function initDatabase() {
         updated_at TIMESTAMP
       )
     `);
-    
-    // Create family members table
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS family_members (
         id SERIAL PRIMARY KEY,
@@ -339,8 +456,7 @@ async function initDatabase() {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
-    
-    // Create staff table
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS staff (
         id SERIAL PRIMARY KEY,
@@ -358,8 +474,20 @@ async function initDatabase() {
         updated_at TIMESTAMP
       )
     `);
-    
-    // Create default admin if not exists
+
+    // OTP codes table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS otp_codes (
+        id SERIAL PRIMARY KEY,
+        staff_id INTEGER REFERENCES staff(id) ON DELETE CASCADE,
+        code VARCHAR(6) NOT NULL,
+        method VARCHAR(10) NOT NULL,
+        used BOOLEAN DEFAULT false,
+        expires_at TIMESTAMP NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
     const adminCheck = await pool.query("SELECT * FROM staff WHERE username = 'admin'");
     if (adminCheck.rows.length === 0) {
       await pool.query(`
@@ -368,14 +496,13 @@ async function initDatabase() {
       `, ['STF-0001', 'System Administrator', 'admin', 'bmmu2025', 'superadmin', true, '[]']);
       console.log('Default admin created: admin / bmmu2025');
     }
-    
+
     console.log('Database initialized successfully');
   } catch (err) {
     console.error('Database initialization error:', err);
   }
 }
 
-// Start server
 initDatabase().then(() => {
   app.listen(port, () => {
     console.log(`Server running on port ${port}`);
