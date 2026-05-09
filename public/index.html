@@ -400,7 +400,9 @@ function renderLogin() {
 
   const card = el('div', { class:'card', style:'padding:28px' });
   box.appendChild(card);
-  box.innerHTML += `<div id="login-footer" style="text-align:center;margin-top:20px;font-size:12px;color:var(--text-muted)">© ${new Date().getFullYear()} ${APP.orgFull} · Government of Uganda · v${APP.version}</div>`;
+  const footer = el('div', { style:'text-align:center;margin-top:20px;font-size:12px;color:var(--text-muted)' });
+  footer.textContent = `© ${new Date().getFullYear()} ${APP.orgFull} · Government of Uganda · v${APP.version}`;
+  box.appendChild(footer);
   wrap.appendChild(box);
 
   function renderCard() {
