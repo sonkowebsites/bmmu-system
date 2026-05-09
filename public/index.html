@@ -365,6 +365,11 @@ function render() {
 // ─── LOGIN PAGE ───────────────────────────────────────────────
 function renderLogin() {
   let loading = false;
+  // loginMode: 'choose' | 'password' | 'otp-input' | 'otp-verify'
+  let loginMode = 'choose';
+  let otpMethod = ''; // 'email' or 'phone'
+  let otpStaffId = null;
+  let otpMasked = '';
 
   const wrap = el('div', { style:'min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;position:relative' });
 
@@ -394,67 +399,199 @@ function renderLogin() {
   box.appendChild(logoWrap);
 
   const card = el('div', { class:'card', style:'padding:28px' });
-  card.innerHTML = `
-    <div style="font-size:17px;font-weight:700;margin-bottom:3px">Sign In</div>
-    <div style="font-size:13px;color:var(--text-sub);margin-bottom:22px">Access the member management portal</div>
-    <div id="login-err" style="display:none" class="alert alert-danger" style="margin-bottom:16px"></div>
-    <div class="form-group">
-      <label class="form-label">Username</label>
-      <input id="l-user" placeholder="Enter your username" autocomplete="username"/>
-    </div>
-    <div class="form-group" style="position:relative">
-      <label class="form-label">Password</label>
-      <input id="l-pass" type="password" placeholder="Enter your password" autocomplete="current-password" style="padding-right:44px"/>
-      <button id="l-eye" type="button" style="position:absolute;right:10px;top:32px;background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:4px">👁</button>
-    </div>
-    <button id="l-btn" class="btn-primary" style="width:100%;padding:12px;font-size:15px;justify-content:center;margin-top:4px">Sign In</button>
-    <div style="margin-top:20px;padding:12px 14px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--text-muted)">
-      <strong style="color:var(--text-sub)">Demo credentials:</strong> username <code style="background:var(--badge);padding:1px 6px;border-radius:4px">admin</code> / password <code style="background:var(--badge);padding:1px 6px;border-radius:4px">bmmu2025</code>
-    </div>
-  `;
   box.appendChild(card);
-
-  box.innerHTML += `<div style="text-align:center;margin-top:20px;font-size:12px;color:var(--text-muted)">© ${new Date().getFullYear()} ${APP.orgFull} · Government of Uganda · v${APP.version}</div>`;
-
+  box.innerHTML += `<div id="login-footer" style="text-align:center;margin-top:20px;font-size:12px;color:var(--text-muted)">© ${new Date().getFullYear()} ${APP.orgFull} · Government of Uganda · v${APP.version}</div>`;
   wrap.appendChild(box);
 
-  requestAnimationFrame(() => {
-    const errEl = $('login-err');
-    const doLogin = async () => {
-      if (loading) return;
-      const u = $('l-user')?.value?.trim();
-      const p = $('l-pass')?.value;
-      if (!u || !p) { errEl.textContent='Please enter username and password.'; errEl.style.display='flex'; return; }
-      loading = true;
-      const btn = $('l-btn');
-      if(btn) { btn.innerHTML = '<span class="spinner"></span> Signing in…'; btn.disabled = true; }
-      try {
-        const user = await login(u, p);
-        State.user = user;
-        State.page = 'app';
-        State.section = 'dashboard';
-        await loadMembers();
-        await loadStaff();
-        render();
-      } catch (err) {
-        if(btn){ btn.textContent='Sign In'; btn.disabled=false; }
-        errEl.textContent = err.message || '⚠ Invalid username or password.';
-        errEl.style.display='flex';
-      } finally {
-        loading = false;
-      }
-    };
-    $('l-btn')?.addEventListener('click', doLogin);
-    $('l-pass')?.addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
-    $('l-user')?.addEventListener('keydown', e => { if(e.key==='Enter') $('l-pass')?.focus(); });
-    $('l-eye')?.addEventListener('click', () => {
-      const inp = $('l-pass'); if(!inp) return;
-      inp.type = inp.type==='password' ? 'text' : 'password';
-      $('l-eye').textContent = inp.type==='password' ? '👁' : '🙈';
-    });
-    $('l-user')?.focus();
-  });
+  function renderCard() {
+    card.innerHTML = '';
 
+    // ── CHOOSE MODE ──
+    if (loginMode === 'choose') {
+      card.innerHTML = `
+        <div style="font-size:17px;font-weight:700;margin-bottom:3px">Sign In</div>
+        <div style="font-size:13px;color:var(--text-sub);margin-bottom:24px">Choose how you want to sign in</div>
+        <div id="login-err" class="alert alert-danger" style="display:none;margin-bottom:16px"></div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <button id="btn-email-otp" class="btn-secondary" style="width:100%;padding:13px;font-size:14px;justify-content:center;gap:10px">
+            📧 Sign in with Email OTP
+          </button>
+          <button id="btn-phone-otp" class="btn-secondary" style="width:100%;padding:13px;font-size:14px;justify-content:center;gap:10px">
+            📱 Sign in with Phone OTP
+          </button>
+          <div style="display:flex;align-items:center;gap:10px;margin:4px 0">
+            <div style="flex:1;height:1px;background:var(--border)"></div>
+            <span style="font-size:12px;color:var(--text-muted)">or</span>
+            <div style="flex:1;height:1px;background:var(--border)"></div>
+          </div>
+          <button id="btn-password" class="btn-ghost" style="width:100%;padding:10px;font-size:13px;justify-content:center;color:var(--text-muted)">
+            🔑 Admin: Username & Password
+          </button>
+        </div>
+      `;
+      requestAnimationFrame(() => {
+        $('btn-email-otp')?.addEventListener('click', () => { otpMethod='email'; loginMode='otp-input'; renderCard(); });
+        $('btn-phone-otp')?.addEventListener('click', () => { otpMethod='phone'; loginMode='otp-input'; renderCard(); });
+        $('btn-password')?.addEventListener('click', () => { loginMode='password'; renderCard(); });
+      });
+    }
+
+    // ── PASSWORD MODE ──
+    else if (loginMode === 'password') {
+      card.innerHTML = `
+        <button id="back-btn" style="background:none;border:none;color:var(--text-sub);cursor:pointer;font-size:13px;padding:0;margin-bottom:16px;display:flex;align-items:center;gap:6px">← Back</button>
+        <div style="font-size:17px;font-weight:700;margin-bottom:3px">Admin Sign In</div>
+        <div style="font-size:13px;color:var(--text-sub);margin-bottom:22px">Enter your username and password</div>
+        <div id="login-err" class="alert alert-danger" style="display:none;margin-bottom:16px"></div>
+        <div class="form-group">
+          <label class="form-label">Username</label>
+          <input id="l-user" placeholder="Enter your username" autocomplete="username"/>
+        </div>
+        <div class="form-group" style="position:relative">
+          <label class="form-label">Password</label>
+          <input id="l-pass" type="password" placeholder="Enter your password" autocomplete="current-password" style="padding-right:44px"/>
+          <button id="l-eye" type="button" style="position:absolute;right:10px;top:32px;background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:4px">👁</button>
+        </div>
+        <button id="l-btn" class="btn-primary" style="width:100%;padding:12px;font-size:15px;justify-content:center;margin-top:4px">Sign In</button>
+      `;
+      requestAnimationFrame(() => {
+        $('back-btn')?.addEventListener('click', () => { loginMode='choose'; renderCard(); });
+        const errEl = $('login-err');
+        const doLogin = async () => {
+          if (loading) return;
+          const u = $('l-user')?.value?.trim();
+          const p = $('l-pass')?.value;
+          if (!u || !p) { errEl.textContent='Please enter username and password.'; errEl.style.display='flex'; return; }
+          loading = true;
+          const btn = $('l-btn');
+          if(btn) { btn.innerHTML = '<span class="spinner"></span> Signing in…'; btn.disabled = true; }
+          try {
+            const user = await login(u, p);
+            State.user = user; State.page = 'app'; State.section = 'dashboard';
+            await loadMembers(); await loadStaff(); render();
+          } catch (err) {
+            if(btn){ btn.textContent='Sign In'; btn.disabled=false; }
+            errEl.textContent = err.message || '⚠ Invalid username or password.';
+            errEl.style.display='flex';
+          } finally { loading = false; }
+        };
+        $('l-btn')?.addEventListener('click', doLogin);
+        $('l-pass')?.addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
+        $('l-user')?.addEventListener('keydown', e => { if(e.key==='Enter') $('l-pass')?.focus(); });
+        $('l-eye')?.addEventListener('click', () => {
+          const inp = $('l-pass'); if(!inp) return;
+          inp.type = inp.type==='password' ? 'text' : 'password';
+          $('l-eye').textContent = inp.type==='password' ? '👁' : '🙈';
+        });
+        $('l-user')?.focus();
+      });
+    }
+
+    // ── OTP INPUT MODE (enter email or phone) ──
+    else if (loginMode === 'otp-input') {
+      const isEmail = otpMethod === 'email';
+      card.innerHTML = `
+        <button id="back-btn" style="background:none;border:none;color:var(--text-sub);cursor:pointer;font-size:13px;padding:0;margin-bottom:16px;display:flex;align-items:center;gap:6px">← Back</button>
+        <div style="font-size:17px;font-weight:700;margin-bottom:3px">${isEmail ? '📧 Email' : '📱 Phone'} Login</div>
+        <div style="font-size:13px;color:var(--text-sub);margin-bottom:22px">
+          ${isEmail ? 'Enter your registered email address' : 'Enter your registered phone number'}
+        </div>
+        <div id="login-err" class="alert alert-danger" style="display:none;margin-bottom:16px"></div>
+        <div class="form-group">
+          <label class="form-label">${isEmail ? 'Email Address' : 'Phone Number'}</label>
+          <input id="otp-contact" type="${isEmail ? 'email' : 'tel'}" 
+            placeholder="${isEmail ? 'yourname@email.com' : '0700123456 or +256700123456'}" 
+            autocomplete="${isEmail ? 'email' : 'tel'}"/>
+        </div>
+        <button id="otp-send-btn" class="btn-primary" style="width:100%;padding:12px;font-size:15px;justify-content:center">
+          Send Code
+        </button>
+      `;
+      requestAnimationFrame(() => {
+        $('back-btn')?.addEventListener('click', () => { loginMode='choose'; renderCard(); });
+        const errEl = $('login-err');
+        const sendOtp = async () => {
+          if (loading) return;
+          const value = $('otp-contact')?.value?.trim();
+          if (!value) { errEl.textContent=`Please enter your ${isEmail?'email':'phone number'}.`; errEl.style.display='flex'; return; }
+          loading = true;
+          const btn = $('otp-send-btn');
+          if(btn) { btn.innerHTML = '<span class="spinner"></span> Sending…'; btn.disabled = true; }
+          try {
+            const res = await apiCall('POST', '/api/otp/request', { value, method: otpMethod });
+            otpStaffId = res.staffId;
+            otpMasked = res.masked;
+            loginMode = 'otp-verify';
+            renderCard();
+          } catch (err) {
+            if(btn) { btn.textContent='Send Code'; btn.disabled=false; }
+            errEl.textContent = err.message || 'Failed to send code.';
+            errEl.style.display='flex';
+          } finally { loading = false; }
+        };
+        $('otp-send-btn')?.addEventListener('click', sendOtp);
+        $('otp-contact')?.addEventListener('keydown', e => { if(e.key==='Enter') sendOtp(); });
+        $('otp-contact')?.focus();
+      });
+    }
+
+    // ── OTP VERIFY MODE (enter the 6-digit code) ──
+    else if (loginMode === 'otp-verify') {
+      const isEmail = otpMethod === 'email';
+      card.innerHTML = `
+        <button id="back-btn" style="background:none;border:none;color:var(--text-sub);cursor:pointer;font-size:13px;padding:0;margin-bottom:16px;display:flex;align-items:center;gap:6px">← Back</button>
+        <div style="font-size:17px;font-weight:700;margin-bottom:3px">Enter Your Code</div>
+        <div style="font-size:13px;color:var(--text-sub);margin-bottom:6px">
+          A 6-digit code was sent to:
+        </div>
+        <div style="font-size:14px;font-weight:600;color:var(--accent);margin-bottom:22px">
+          ${isEmail ? '📧' : '📱'} ${otpMasked}
+        </div>
+        <div id="login-err" class="alert alert-danger" style="display:none;margin-bottom:16px"></div>
+        <div class="form-group">
+          <label class="form-label">6-Digit Code</label>
+          <input id="otp-code" type="text" inputmode="numeric" maxlength="6"
+            placeholder="000000"
+            style="font-size:24px;font-weight:700;letter-spacing:10px;text-align:center;padding:14px"/>
+        </div>
+        <button id="otp-verify-btn" class="btn-primary" style="width:100%;padding:12px;font-size:15px;justify-content:center">
+          Verify & Sign In
+        </button>
+        <div style="text-align:center;margin-top:16px">
+          <button id="otp-resend" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:13px;text-decoration:underline">
+            Didn't receive a code? Resend
+          </button>
+        </div>
+      `;
+      requestAnimationFrame(() => {
+        $('back-btn')?.addEventListener('click', () => { loginMode='otp-input'; renderCard(); });
+        const errEl = $('login-err');
+        const verifyOtp = async () => {
+          if (loading) return;
+          const code = $('otp-code')?.value?.trim();
+          if (!code || code.length !== 6) { errEl.textContent='Please enter the 6-digit code.'; errEl.style.display='flex'; return; }
+          loading = true;
+          const btn = $('otp-verify-btn');
+          if(btn) { btn.innerHTML = '<span class="spinner"></span> Verifying…'; btn.disabled = true; }
+          try {
+            const user = await apiCall('POST', '/api/otp/verify', { staffId: otpStaffId, code });
+            State.user = user; State.page = 'app'; State.section = 'dashboard';
+            await loadMembers(); await loadStaff(); render();
+          } catch (err) {
+            if(btn) { btn.textContent='Verify & Sign In'; btn.disabled=false; }
+            errEl.textContent = err.message || 'Invalid or expired code.';
+            errEl.style.display='flex';
+          } finally { loading = false; }
+        };
+        $('otp-verify-btn')?.addEventListener('click', verifyOtp);
+        $('otp-code')?.addEventListener('keydown', e => { if(e.key==='Enter') verifyOtp(); });
+        $('otp-resend')?.addEventListener('click', () => { loginMode='otp-input'; renderCard(); });
+        $('otp-code')?.focus();
+      });
+    }
+  }
+
+  renderCard();
   return wrap;
 }
 
