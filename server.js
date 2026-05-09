@@ -2,7 +2,6 @@ const express = require('express');
 const { Pool } = require('pg');
 const path = require('path');
 const cors = require('cors');
-const nodemailer = require('nodemailer');
 const AfricasTalking = require('africastalking');
 
 const app = express();
@@ -19,14 +18,25 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// ============ EMAIL SETUP (Gmail) ============
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_APP_PASSWORD
-  }
-});
+// ============ EMAIL SETUP (Resend.com - works on Render free tier) ============
+async function sendEmailViaResend(to, subject, html) {
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      from: 'BMMU System <onboarding@resend.dev>',
+      to: [to],
+      subject,
+      html
+    })
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.message || 'Failed to send email');
+  return data;
+}
 
 // ============ AFRICA'S TALKING SETUP (SMS) ============
 const AT = AfricasTalking({
@@ -41,11 +51,7 @@ function generateOTP() {
 }
 
 async function sendEmailOTP(email, otp, name) {
-  await transporter.sendMail({
-    from: `"BMMU System" <${process.env.GMAIL_USER}>`,
-    to: email,
-    subject: 'Your BMMU Login Code',
-    html: `
+  await sendEmailViaResend(email, 'Your BMMU Login Code', `
       <div style="font-family:sans-serif;max-width:400px;margin:auto;padding:24px;border:1px solid #eee;border-radius:10px">
         <div style="text-align:center;margin-bottom:20px">
           <div style="width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#5B6BF5,#8B5CF6);display:inline-flex;align-items:center;justify-content:center">
