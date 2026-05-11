@@ -38,7 +38,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// Email configuration (optional - won't break if not configured)
+// Email configuration (optional)
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.ethereal.email',
   port: process.env.SMTP_PORT || 587,
@@ -158,55 +158,43 @@ const authenticateToken = (req, res, next) => {
 // ============ AUTH API ============
 app.post('/api/login', async (req, res) => {
   try {
-    const { username, password, email, phone } = req.body;
+    const { username, email, phone, password } = req.body;
     
-    // Support login by username, email, or phone
-    let query = 'SELECT * FROM staff WHERE active = true AND (';
-    const params = [];
-    let paramIndex = 1;
+    console.log('Login attempt:', { username, email, phone });
+    
+    let user = null;
     
     if (username) {
-      query += `username = $${paramIndex}`;
-      params.push(username);
-      paramIndex++;
+      const result = await pool.query('SELECT * FROM staff WHERE username = $1', [username]);
+      if (result.rows[0]) user = result.rows[0];
     }
     
-    if (email && email.includes('@')) {
-      if (params.length > 0) query += ' OR ';
-      query += `email = $${paramIndex}`;
-      params.push(email);
-      paramIndex++;
+    if (!user && email) {
+      const result = await pool.query('SELECT * FROM staff WHERE email = $1', [email]);
+      if (result.rows[0]) user = result.rows[0];
     }
     
-    if (phone && phone.length >= 10) {
-      if (params.length > 0) query += ' OR ';
-      query += `phone = $${paramIndex}`;
-      params.push(phone);
-      paramIndex++;
+    if (!user && phone) {
+      const result = await pool.query('SELECT * FROM staff WHERE phone = $1', [phone]);
+      if (result.rows[0]) user = result.rows[0];
     }
     
-    query += ')';
-    
-    if (params.length === 0) {
-      return res.status(401).json({ error: 'Please provide username, email, or phone' });
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
     }
     
-    const result = await pool.query(query, params);
-    
-    if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+    if (!user.active) {
+      return res.status(401).json({ error: 'Account is inactive' });
     }
     
-    const user = result.rows[0];
     const isValid = await bcrypt.compare(password, user.password);
     
     if (!isValid) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ error: 'Invalid password' });
     }
     
     const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
     
-    // Send login notification email (don't await - don't block)
     const clientInfo = getClientInfo(req);
     if (user.email && user.email !== 'demo@ethereal.email') {
       sendLoginNotification(user.email, user.name, clientInfo).catch(console.log);
@@ -217,24 +205,9 @@ app.post('/api/login', async (req, res) => {
     
     const { password: _, ...userWithoutPassword } = user;
     res.json({ user: userWithoutPassword, token });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-    // Send login notification email (don't await - don't block)
-    const clientInfo = getClientInfo(req);
-    if (user.email && user.email !== 'demo@ethereal.email') {
-      sendLoginNotification(user.email, user.name, clientInfo).catch(console.log);
-    }
     
-    req.session.token = token;
-    req.session.userId = user.id;
-    
-    const { password: _, ...userWithoutPassword } = user;
-    res.json({ user: userWithoutPassword, token });
   } catch (err) {
-    console.error(err);
+    console.error('Login error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -500,23 +473,19 @@ async function initDatabase() {
       )
     `);
     
-// Fix: Ensure admin exists with correct password hash
-const adminCheck = await pool.query("SELECT * FROM staff WHERE username = 'admin'");
-if (adminCheck.rows.length === 0) {
-  const hashedPassword = await bcrypt.hash('bmmu2025', 10);
-  await pool.query(`
-    INSERT INTO staff (staff_id, name, username, password, role, active, permissions, email)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-  `, ['STF-0001', 'System Administrator', 'admin', hashedPassword, 'superadmin', true, '[]', 'admin@bmmu.go.ug']);
-  console.log('Default admin created: admin / bmmu2025');
-} else {
-  // Force update the admin password hash (in case it was stored incorrectly)
-  const hashedPassword = await bcrypt.hash('bmmu2025', 10);
-  await pool.query(`
-    UPDATE staff SET password = $1 WHERE username = 'admin'
-  `, [hashedPassword]);
-  console.log('Admin password hash updated');
-}
+    const adminCheck = await pool.query("SELECT * FROM staff WHERE username = 'admin'");
+    if (adminCheck.rows.length === 0) {
+      const hashedPassword = await bcrypt.hash('bmmu2025', 10);
+      await pool.query(`
+        INSERT INTO staff (staff_id, name, username, password, role, active, permissions, email)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `, ['STF-0001', 'System Administrator', 'admin', hashedPassword, 'superadmin', true, '[]', 'admin@bmmu.go.ug']);
+      console.log('Default admin created: admin / bmmu2025');
+    } else {
+      const hashedPassword = await bcrypt.hash('bmmu2025', 10);
+      await pool.query(`UPDATE staff SET password = $1 WHERE username = 'admin'`, [hashedPassword]);
+      console.log('Admin password hash updated');
+    }
     
     console.log('Database initialized successfully');
   } catch (err) {
@@ -529,6 +498,7 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Start server
 initDatabase().then(() => {
   app.listen(port, '0.0.0.0', () => {
     console.log(`Server running on port ${port}`);
