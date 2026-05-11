@@ -456,14 +456,14 @@ async function initDatabase() {
     `);
     
     const adminCheck = await pool.query("SELECT * FROM staff WHERE username = 'admin'");
-    if (adminCheck.rows.length === 0) {
-      const hashedPassword = await bcrypt.hash('bmmu2025', 10);
-      await pool.query(`
-        INSERT INTO staff (staff_id, name, username, password, role, active, permissions, email)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      `, ['STF-0001', 'System Administrator', 'admin', hashedPassword, 'superadmin', true, '[]', 'admin@bmmu.go.ug']);
-      console.log('Default admin created: admin / bmmu2025');
-    }
+if (adminCheck.rows.length === 0) {
+  const hashedPassword = await bcrypt.hash('bmmu2025', 10);
+  await pool.query(`
+    INSERT INTO staff (staff_id, name, username, password, role, active, permissions, email)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+  `, ['STF-0001', 'System Administrator', 'admin', hashedPassword, 'superadmin', true, '[]', 'admin@bmmu.go.ug']);
+  console.log('Default admin created: admin / bmmu2025');
+}
     
     console.log('Database initialized successfully');
   } catch (err) {
