@@ -2,7 +2,7 @@ const express = require('express');
 const { Pool } = require('pg');
 const path = require('path');
 const cors = require('cors');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const session = require('express-session');
 const helmet = require('helmet');
@@ -28,7 +28,7 @@ app.use(session({
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    maxAge: 7 * 24 * 60 * 60 * 1000
   }
 }));
 
@@ -38,7 +38,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
-// Email configuration (using Ethereal for demo - replace with real SMTP)
+// Email configuration (optional - won't break if not configured)
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.ethereal.email',
   port: process.env.SMTP_PORT || 587,
@@ -67,7 +67,6 @@ const getClientInfo = (req) => {
   else if (userAgent.includes('Firefox')) browser = 'Firefox';
   else if (userAgent.includes('Edge')) browser = 'Edge';
   
-  // Get IP and location (simplified - use IP API in production)
   const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'Unknown';
   
   return { device, os, browser, ip, userAgent };
@@ -75,6 +74,8 @@ const getClientInfo = (req) => {
 
 // Send login notification email
 async function sendLoginNotification(email, name, clientInfo) {
+  if (!email || email === 'demo@ethereal.email') return;
+  
   const html = `
     <!DOCTYPE html>
     <html>
@@ -138,7 +139,7 @@ async function sendLoginNotification(email, name, clientInfo) {
       html: html
     });
   } catch (err) {
-    console.log('Email notification failed (this is fine in demo):', err.message);
+    console.log('Email notification skipped (no email configured)');
   }
 }
 
@@ -176,10 +177,10 @@ app.post('/api/login', async (req, res) => {
     
     const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
     
-    // Send login notification email
+    // Send login notification email (don't await - don't block)
     const clientInfo = getClientInfo(req);
-    if (user.email) {
-      await sendLoginNotification(user.email, user.name, clientInfo);
+    if (user.email && user.email !== 'demo@ethereal.email') {
+      sendLoginNotification(user.email, user.name, clientInfo).catch(console.log);
     }
     
     req.session.token = token;
@@ -209,7 +210,7 @@ app.get('/api/verify', authenticateToken, async (req, res) => {
   }
 });
 
-// ============ MEMBERS API (same as before with bcrypt for passwords) ============
+// ============ MEMBERS API ============
 app.get('/api/members', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(`
