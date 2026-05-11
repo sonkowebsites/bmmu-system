@@ -1068,51 +1068,136 @@
     }
 
     function renderLogin() {
-      const app = document.getElementById('app');
-      app.innerHTML = `
-        <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;">
-          <div class="card-modern" style="max-width: 400px; width: 100%; padding: 40px; text-align: center;">
-            <div style="width: 80px; height: 80px; background: linear-gradient(135deg, var(--primary), var(--primary-dark)); border-radius: 20px; margin: 0 auto 24px; display: flex; align-items: center; justify-content: center;">
-              <i class="fas fa-users" style="color: white; font-size: 40px;"></i>
-            </div>
-            <h1 style="font-size: 28px; font-weight: 800; margin-bottom: 8px;">BMMU Portal</h1>
-            <p style="color: var(--gray-500); margin-bottom: 32px;">Member Management System</p>
-            
-            <div id="loginError" style="display: none; background: #fee2e2; color: #dc2626; padding: 10px; border-radius: var(--radius); margin-bottom: 20px; font-size: 14px;"></div>
-            
-            <div style="margin-bottom: 20px;">
-              <input type="text" id="loginUsername" placeholder="Username" style="width: 100%; padding: 12px 16px; border: 1px solid var(--gray-200); border-radius: var(--radius);">
-            </div>
-            <div style="margin-bottom: 24px;">
-              <input type="password" id="loginPassword" placeholder="Password" style="width: 100%; padding: 12px 16px; border: 1px solid var(--gray-200); border-radius: var(--radius);">
-            </div>
-            <button id="loginBtn" class="btn-modern btn-primary-modern" style="width: 100%; justify-content: center;">Sign In</button>
-            
-            <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--gray-200); font-size: 12px; color: var(--gray-500);">
-              <p>Demo: admin / bmmu2025</p>
-              <p style="margin-top: 8px;">© ${new Date().getFullYear()} Buganda Muslim Mass Union</p>
-            </div>
-          </div>
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;">
+      <div class="card-modern" style="max-width: 450px; width: 100%; padding: 40px; text-align: center;">
+        <div style="width: 80px; height: 80px; background: linear-gradient(135deg, var(--primary), var(--primary-dark)); border-radius: 20px; margin: 0 auto 24px; display: flex; align-items: center; justify-content: center;">
+          <i class="fas fa-users" style="color: white; font-size: 40px;"></i>
         </div>
-      `;
-      
-      document.getElementById('loginBtn')?.addEventListener('click', async () => {
-        const username = document.getElementById('loginUsername').value;
-        const password = document.getElementById('loginPassword').value;
-        const success = await login(username, password);
-        if (success) {
-          renderApp();
-        } else {
-          const errorDiv = document.getElementById('loginError');
-          errorDiv.textContent = 'Invalid username or password';
-          errorDiv.style.display = 'block';
-        }
+        <h1 style="font-size: 28px; font-weight: 800; margin-bottom: 8px;">BMMU Portal</h1>
+        <p style="color: var(--gray-500); margin-bottom: 32px;">Member Management System</p>
+        
+        <div id="loginError" style="display: none; background: #fee2e2; color: #dc2626; padding: 10px; border-radius: var(--radius); margin-bottom: 20px; font-size: 14px;"></div>
+        
+        <!-- Login Method Tabs -->
+        <div style="display: flex; gap: 8px; margin-bottom: 24px; background: var(--gray-100); padding: 4px; border-radius: var(--radius);">
+          <button class="login-tab active" data-method="username" style="flex: 1; padding: 10px; background: white; border: none; border-radius: var(--radius); cursor: pointer; font-weight: 500;">Username</button>
+          <button class="login-tab" data-method="email" style="flex: 1; padding: 10px; background: transparent; border: none; border-radius: var(--radius); cursor: pointer; font-weight: 500;">Email</button>
+          <button class="login-tab" data-method="phone" style="flex: 1; padding: 10px; background: transparent; border: none; border-radius: var(--radius); cursor: pointer; font-weight: 500;">Phone</button>
+        </div>
+        
+        <!-- Username Field (default) -->
+        <div id="loginUsernameGroup" style="margin-bottom: 20px;">
+          <input type="text" id="loginUsername" placeholder="Username" style="width: 100%; padding: 14px 16px; border: 2px solid var(--gray-200); border-radius: var(--radius); font-size: 16px;">
+        </div>
+        
+        <!-- Email Field (hidden by default) -->
+        <div id="loginEmailGroup" style="margin-bottom: 20px; display: none;">
+          <input type="email" id="loginEmail" placeholder="Email Address" style="width: 100%; padding: 14px 16px; border: 2px solid var(--gray-200); border-radius: var(--radius); font-size: 16px;">
+        </div>
+        
+        <!-- Phone Field (hidden by default) -->
+        <div id="loginPhoneGroup" style="margin-bottom: 20px; display: none;">
+          <input type="tel" id="loginPhone" placeholder="Phone Number (e.g., +2567XXXXXXXX)" style="width: 100%; padding: 14px 16px; border: 2px solid var(--gray-200); border-radius: var(--radius); font-size: 16px;">
+        </div>
+        
+        <div style="margin-bottom: 24px;">
+          <input type="password" id="loginPassword" placeholder="Password" style="width: 100%; padding: 14px 16px; border: 2px solid var(--gray-200); border-radius: var(--radius); font-size: 16px;">
+        </div>
+        
+        <button id="loginBtn" class="btn-modern btn-primary-modern" style="width: 100%; justify-content: center; padding: 14px; font-size: 16px;">Sign In</button>
+        
+        <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--gray-200); font-size: 13px; color: var(--gray-500);">
+          <p><strong>Demo Credentials:</strong></p>
+          <p style="margin-top: 6px;">📧 Username: <code style="background: var(--gray-100); padding: 2px 6px; border-radius: 4px;">admin</code> / Password: <code style="background: var(--gray-100); padding: 2px 6px; border-radius: 4px;">bmmu2025</code></p>
+          <p>📧 Email: <code style="background: var(--gray-100); padding: 2px 6px; border-radius: 4px;">admin@bmmu.go.ug</code> / Password: <code style="background: var(--gray-100); padding: 2px 6px; border-radius: 4px;">bmmu2025</code></p>
+          <p style="margin-top: 8px;">© ${new Date().getFullYear()} Buganda Muslim Mass Union</p>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Tab switching logic
+  let currentMethod = 'username';
+  
+  const usernameGroup = document.getElementById('loginUsernameGroup');
+  const emailGroup = document.getElementById('loginEmailGroup');
+  const phoneGroup = document.getElementById('loginPhoneGroup');
+  const usernameInput = document.getElementById('loginUsername');
+  const emailInput = document.getElementById('loginEmail');
+  const phoneInput = document.getElementById('loginPhone');
+  
+  document.querySelectorAll('.login-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.login-tab').forEach(t => {
+        t.style.background = 'transparent';
+        t.style.color = 'var(--gray-600)';
       });
+      tab.style.background = 'white';
+      tab.style.color = 'var(--primary)';
       
-      document.getElementById('loginPassword')?.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') document.getElementById('loginBtn').click();
-      });
+      currentMethod = tab.dataset.method;
+      
+      if (currentMethod === 'username') {
+        usernameGroup.style.display = 'block';
+        emailGroup.style.display = 'none';
+        phoneGroup.style.display = 'none';
+      } else if (currentMethod === 'email') {
+        usernameGroup.style.display = 'none';
+        emailGroup.style.display = 'block';
+        phoneGroup.style.display = 'none';
+      } else {
+        usernameGroup.style.display = 'none';
+        emailGroup.style.display = 'none';
+        phoneGroup.style.display = 'block';
+      }
+    });
+  });
+  
+  document.getElementById('loginBtn')?.addEventListener('click', async () => {
+    let loginData = {};
+    let errorMsg = '';
+    
+    if (currentMethod === 'username') {
+      const username = usernameInput?.value.trim();
+      if (!username) errorMsg = 'Please enter your username';
+      loginData = { username, password: document.getElementById('loginPassword').value };
+    } else if (currentMethod === 'email') {
+      const email = emailInput?.value.trim();
+      if (!email) errorMsg = 'Please enter your email address';
+      if (!email.includes('@')) errorMsg = 'Please enter a valid email address';
+      loginData = { email, password: document.getElementById('loginPassword').value };
+    } else {
+      const phone = phoneInput?.value.trim();
+      if (!phone) errorMsg = 'Please enter your phone number';
+      loginData = { phone, password: document.getElementById('loginPassword').value };
     }
+    
+    const password = document.getElementById('loginPassword').value;
+    if (!password) errorMsg = 'Please enter your password';
+    
+    if (errorMsg) {
+      const errorDiv = document.getElementById('loginError');
+      errorDiv.textContent = errorMsg;
+      errorDiv.style.display = 'block';
+      return;
+    }
+    
+    const success = await login(loginData.username || loginData.email || loginData.phone, password);
+    if (success) {
+      renderApp();
+    } else {
+      const errorDiv = document.getElementById('loginError');
+      errorDiv.textContent = 'Invalid credentials. Please check your username/email/phone and password.';
+      errorDiv.style.display = 'block';
+    }
+  });
+  
+  document.getElementById('loginPassword')?.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') document.getElementById('loginBtn').click();
+  });
+}
 
     // Initialize
     renderApp();
