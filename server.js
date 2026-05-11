@@ -158,11 +158,40 @@ const authenticateToken = (req, res, next) => {
 // ============ AUTH API ============
 app.post('/api/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
-    const result = await pool.query(
-      'SELECT * FROM staff WHERE username = $1 AND active = true',
-      [username]
-    );
+    const { username, password, email, phone } = req.body;
+    
+    // Support login by username, email, or phone
+    let query = 'SELECT * FROM staff WHERE active = true AND (';
+    const params = [];
+    let paramIndex = 1;
+    
+    if (username) {
+      query += `username = $${paramIndex}`;
+      params.push(username);
+      paramIndex++;
+    }
+    
+    if (email && email.includes('@')) {
+      if (params.length > 0) query += ' OR ';
+      query += `email = $${paramIndex}`;
+      params.push(email);
+      paramIndex++;
+    }
+    
+    if (phone && phone.length >= 10) {
+      if (params.length > 0) query += ' OR ';
+      query += `phone = $${paramIndex}`;
+      params.push(phone);
+      paramIndex++;
+    }
+    
+    query += ')';
+    
+    if (params.length === 0) {
+      return res.status(401).json({ error: 'Please provide username, email, or phone' });
+    }
+    
+    const result = await pool.query(query, params);
     
     if (result.rows.length === 0) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -177,6 +206,22 @@ app.post('/api/login', async (req, res) => {
     
     const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
     
+    // Send login notification email (don't await - don't block)
+    const clientInfo = getClientInfo(req);
+    if (user.email && user.email !== 'demo@ethereal.email') {
+      sendLoginNotification(user.email, user.name, clientInfo).catch(console.log);
+    }
+    
+    req.session.token = token;
+    req.session.userId = user.id;
+    
+    const { password: _, ...userWithoutPassword } = user;
+    res.json({ user: userWithoutPassword, token });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
     // Send login notification email (don't await - don't block)
     const clientInfo = getClientInfo(req);
     if (user.email && user.email !== 'demo@ethereal.email') {
