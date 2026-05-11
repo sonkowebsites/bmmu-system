@@ -455,7 +455,8 @@ async function initDatabase() {
       )
     `);
     
-    const adminCheck = await pool.query("SELECT * FROM staff WHERE username = 'admin'");
+// Fix: Ensure admin exists with correct password hash
+const adminCheck = await pool.query("SELECT * FROM staff WHERE username = 'admin'");
 if (adminCheck.rows.length === 0) {
   const hashedPassword = await bcrypt.hash('bmmu2025', 10);
   await pool.query(`
@@ -463,6 +464,13 @@ if (adminCheck.rows.length === 0) {
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
   `, ['STF-0001', 'System Administrator', 'admin', hashedPassword, 'superadmin', true, '[]', 'admin@bmmu.go.ug']);
   console.log('Default admin created: admin / bmmu2025');
+} else {
+  // Force update the admin password hash (in case it was stored incorrectly)
+  const hashedPassword = await bcrypt.hash('bmmu2025', 10);
+  await pool.query(`
+    UPDATE staff SET password = $1 WHERE username = 'admin'
+  `, [hashedPassword]);
+  console.log('Admin password hash updated');
 }
     
     console.log('Database initialized successfully');
