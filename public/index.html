@@ -421,16 +421,31 @@
       }
     }
 
-    async function login(username, password) {
-      const result = await apiCall('POST', '/api/login', { username, password }, false);
-      if (result.token) {
-        authToken = result.token;
-        localStorage.setItem('bmmu_token', result.token);
-        currentUser = result.user;
-        return true;
-      }
-      return false;
+    async function login(identifier, password) {
+  try {
+    // Determine if identifier is email or phone
+    let loginBody = {};
+    if (identifier.includes('@')) {
+      loginBody = { email: identifier, password };
+    } else if (identifier.match(/^[\+]?[0-9]{10,15}$/)) {
+      loginBody = { phone: identifier, password };
+    } else {
+      loginBody = { username: identifier, password };
     }
+    
+    const result = await apiCall('POST', '/api/login', loginBody, false);
+    if (result.token) {
+      authToken = result.token;
+      localStorage.setItem('bmmu_token', result.token);
+      currentUser = result.user;
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.error('Login error:', err);
+    return false;
+  }
+}
 
     async function verifySession() {
       if (!authToken) return false;
